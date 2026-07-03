@@ -1,0 +1,22 @@
+# RideNow Data Engineering Pipeline
+
+A containerized, end-to-end data engineering pipeline built with PySpark. This project transforms raw taxi trip data into high-value, aggregated metrics using a Medallion Architecture (Bronze/Silver/Gold).
+
+## 🚀 Pipeline Architecture
+* **Bronze:** Raw Parquet/CSV ingestion.
+* **Silver:** Data cleaning, type casting, surrogate key generation, and data quality validation.
+* **Gold:** Business-level aggregations (Daily Revenue, Tip Rates) ready for BI consumption.
+
+## 🛠️ Engineering Highlights
+* **Dead Letter Queue (Quarantine):** Invalid records are automatically routed to a `/quarantine` folder, ensuring auditability and zero data loss.
+* **Data Quality Gates:** Implemented a 'fail-fast' approach; the pipeline utilizes assertions to halt execution if data doesn't meet quality standards.
+* **Performance Optimization:** 
+    * Implemented `.repartition()` and `.coalesce()` to solve the "Small File Problem," ensuring optimal Parquet file sizes for downstream storage and read performance.
+    * Containerized with Docker to ensure a consistent, reproducible environment.
+* **Idempotency:** Designed to allow safe, repeated runs without data duplication through partition-level overwrites.
+
+## 🏗️ Getting Started
+1. Clone the repository.
+2. Run the pipeline:
+   docker compose up
+3. The processed results will be available in `data/silver/` and `data/gold/`.

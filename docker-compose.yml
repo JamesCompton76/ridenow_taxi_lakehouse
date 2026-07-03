@@ -1,0 +1,16 @@
+services:
+  taxi_pipeline:
+    image: apache/spark:3.5.1
+    container_name: taxi_pipeline
+    user: root
+    volumes:
+      - .:/app
+    # Overriding the default entrypoint to run spark-submit directly
+    entrypoint: ["/opt/spark/bin/spark-submit"]
+    command: /app/src/main.py
+    networks:
+      - taxi-net
+
+networks:
+  taxi-net:
+    driver: bridge
