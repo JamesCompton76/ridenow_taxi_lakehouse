@@ -22,7 +22,7 @@ A containerized, end-to-end data engineering pipeline built with PySpark. This p
 This Lakehouse architecture supports both automated reporting and ad-hoc exploratory analysis:
 
 *   **Automated Gold Tables:** For scheduled, high-performance dashboarding, pre-aggregated metrics (like Daily Revenue and Tip Rates) are computed via PySpark and saved to `data/gold/`.
-*   **Ad-Hoc Exploration:** For rapid data discovery without requiring a Spark cluster, analysts can query the clean, partitioned Silver layer directly. I have included a lightweight `ridenow_taxi_sample_queries.sql.sql` file that uses DuckDB to run business outputs directly against the raw Parquet files.
+*   **Ad-Hoc Exploration:** For rapid data discovery without requiring a Spark cluster, analysts can query the clean, partitioned Silver layer directly. I have included a lightweight `ridenow_taxi_sample_queries.sql` file that uses DuckDB to run business outputs directly against the raw Parquet files.
 
 ## 🏗️ Getting Started
 1. Clone the repository.
