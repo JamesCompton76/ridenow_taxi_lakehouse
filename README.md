@@ -40,3 +40,46 @@ This Lakehouse architecture supports both automated reporting and ad-hoc explora
 *   **Implement the Full Gold Star Schema:** Currently, the pipeline directly aggregates daily metrics from the Silver layer. For a true BI-ready data warehouse, I would build out the full Kimball star schema with a central `fact_trip` table and conformed dimensions (`dim_zone`, `dim_datetime`).
 *   **Dedicated Orchestration:** Instead of running the Python script manually via Docker Compose, I would wrap the execution in a DAG using an orchestrator like Apache Airflow or Dagster to manage dependencies, scheduling, and retries.
 *   **Advanced Data Quality Framework:** The current pipeline uses inline Python `assert` statements to fail fast on data violations. In production, I would replace this with a dedicated testing framework to automatically profile the data and generate data quality reports.
+
+
+  ### Future State: Gold Star Schema
+
+If time permitted, the final Gold layer would be modeled as a Kimball star schema to optimize downstream BI performance. 
+
+erDiagram
+    fact_trip {
+        string surrogate_key PK
+        date pickup_date_id FK
+        date dropoff_date_id FK
+        time pickup_time
+        int pickup_hour
+        time dropoff_time
+        int dropoff_hour
+        int PULocationID FK
+        int DOLocationID FK
+        float trip_duration_mins
+        float trip_distance
+        float fare_amount
+        float tip_amount
+        float total_amount
+        int payment_type
+    }
+    dim_zone {
+        int LocationID PK
+        string Borough
+        string Zone
+        string service_zone
+    }
+    dim_datetime {
+        date date_id PK
+        int year
+        int month
+        int week_of_year
+        string day_of_week
+        boolean is_weekend
+    }
+
+    dim_datetime ||--|{ fact_trip : "pickup"
+    dim_datetime ||--|{ fact_trip : "dropoff"
+    dim_zone ||--|{ fact_trip : "PULocationID"
+    dim_zone ||--|{ fact_trip : "DOLocationID"
