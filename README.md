@@ -46,6 +46,7 @@ This Lakehouse architecture supports both automated reporting and ad-hoc explora
 
 If time permitted, the final Gold layer would be modeled as a Kimball star schema to optimize downstream BI performance. 
 
+```mermaid
 erDiagram
     fact_trip {
         string surrogate_key PK
@@ -83,3 +84,4 @@ erDiagram
     dim_datetime ||--|{ fact_trip : "dropoff"
     dim_zone ||--|{ fact_trip : "PULocationID"
     dim_zone ||--|{ fact_trip : "DOLocationID"
+```
