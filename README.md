@@ -80,8 +80,8 @@ erDiagram
         boolean is_weekend
     }
 
-    dim_datetime ||--|{ fact_trip : "pickup"
-    dim_datetime ||--|{ fact_trip : "dropoff"
+    dim_datetime ||--|{ fact_trip : "pickup_date_id"
+    dim_datetime ||--|{ fact_trip : "dropoff_date_id"
     dim_zone ||--|{ fact_trip : "PULocationID"
     dim_zone ||--|{ fact_trip : "DOLocationID"
 ```
