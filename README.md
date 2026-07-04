@@ -17,6 +17,13 @@ A containerized, end-to-end data engineering pipeline built with PySpark. This p
 * **Idempotency:** Designed to allow safe, repeated runs without data duplication through partition-level overwrites.
 * **SQL-Based Auditability:** Integrated DuckDB-ready SQL audit scripts to perform ad-hoc root-cause analysis on quarantined records, allowing for quick identification of data quality trends without requiring full pipeline re-execution.
 
+## 📊 Analytical Workflows
+
+This Lakehouse architecture supports both automated reporting and ad-hoc exploratory analysis:
+
+*   **Automated Gold Tables:** For scheduled, high-performance dashboarding, pre-aggregated metrics (like Daily Revenue and Tip Rates) are computed via PySpark and saved to `data/gold/`.
+*   **Ad-Hoc Exploration:** For rapid data discovery without requiring a Spark cluster, analysts can query the clean, partitioned Silver layer directly. I have included a lightweight `ridenow_taxi_sample_queries.sql.sql` file that uses DuckDB to run business outputs directly against the raw Parquet files.
+
 ## 🏗️ Getting Started
 1. Clone the repository.
 2. Run the pipeline:
@@ -24,3 +31,12 @@ A containerized, end-to-end data engineering pipeline built with PySpark. This p
 3. Processed results are available in `data/silver/` and `data/gold/`.
 4. **Data Quality Auditing:** Use the provided SQL audit scripts to analyze quarantined records:
    `duckdb < audit_quarantine.sql`
+
+## ⏱️ Post-Timebox Reflections: Next Steps for Production
+
+*Note: The core deliverables above were completed within the requested 3 to 4-hour timebox. The following notes outline how I would scale this into a robust, production-grade pipeline if given more time.*
+
+*   **Upgrade to a Modern Table Format:** While Spark's dynamic partition overwrite handles standard incremental loads well, I would transition the storage layer from raw Parquet to Apache Iceberg or Delta Lake. This provides a transactional metadata layer, allowing for `MERGE INTO` (upsert) operations to seamlessly handle late-arriving records without rewriting entire partitions.
+*   **Implement the Full Gold Star Schema:** Currently, the pipeline directly aggregates daily metrics from the Silver layer. For a true BI-ready data warehouse, I would build out the full Kimball star schema with a central `fact_trip` table and conformed dimensions (`dim_zone`, `dim_datetime`).
+*   **Dedicated Orchestration:** Instead of running the Python script manually via Docker Compose, I would wrap the execution in a DAG using an orchestrator like Apache Airflow or Dagster to manage dependencies, scheduling, and retries.
+*   **Advanced Data Quality Framework:** The current pipeline uses inline Python `assert` statements to fail fast on data violations. In production, I would replace this with a dedicated testing framework to automatically profile the data and generate data quality reports.
