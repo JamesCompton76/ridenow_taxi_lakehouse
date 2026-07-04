@@ -2,18 +2,28 @@ import os
 import time
 import glob
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, to_date, date_format, hour, unix_timestamp, md5, concat_ws, coalesce, lit, count, sum as _sum, round
+from pyspark.sql.functions import (
+    col, to_date, date_format, hour, unix_timestamp, md5,
+    concat_ws, coalesce, lit, count, sum as _sum, round, input_file_name
+)
+
+VALID_PAYMENTS = [0, 1, 2, 3, 4, 5, 6]
 
 def create_spark_session():
     # Clean, lightweight local session
-    return SparkSession.builder \
+    spark = SparkSession.builder \
         .appName("RideNow_Pipeline") \
         .config("spark.sql.shuffle.partitions", "4") \
         .getOrCreate()
 
+    # Silence the noisy INFO logs from the console
+    spark.sparkContext.setLogLevel("WARN")
+
+    return spark
+
 def build_silver_layer(spark):
     print("\n--- 1. INGESTING RAW DATA ---")
-    
+
     # Dynamically scan and log the files being ingested
     raw_dir = "/app/data/raw"
     parquet_files = glob.glob(f"{raw_dir}/*.parquet")
@@ -26,7 +36,8 @@ def build_silver_layer(spark):
     zone_data_path = f"{raw_dir}/taxi_zone_lookup.csv"
 
     df_raw = spark.read.parquet(trip_data_path)
-    df_zones = spark.read.option("header", "true").csv(zone_data_path)
+    # FIX: Explicitly infer schema to prevent string-vs-integer join mismatches
+    df_zones = spark.read.option("header", "true").option("inferSchema", "true").csv(zone_data_path)
 
     print("\n--- 2. APPLYING SILVER TRANSFORMATIONS & QUARANTINE ---")
     df_derived = df_raw \
@@ -36,18 +47,22 @@ def build_silver_layer(spark):
         .withColumn("trip_duration_mins", 
                     (unix_timestamp("tpep_dropoff_datetime") - unix_timestamp("tpep_pickup_datetime")) / 60)
 
-    # Define our strict data quality rules
+    # Define strict data quality rules
     valid_condition = (
-        (col("fare_amount") > 0) & 
-        (col("trip_distance").between(0, 100)) & 
+        (col("fare_amount") > 0) &
+        (col("trip_distance").between(0, 100)) &
         (col("trip_duration_mins").between(0, 300)) &
         (col("tpep_dropoff_datetime") > col("tpep_pickup_datetime")) &
         (col("pickup_date") >= '2024-01-01') &
-        (col("payment_type").isin([1, 2, 3, 4, 5, 6]))
+        (col("payment_type").isin(VALID_PAYMENTS))
     )
 
     # Evaluate each row against the rules
     df_evaluated = df_derived.withColumn("is_valid", valid_condition)
+
+    # FAILS ON MY LIGHTWEIGHT DESIGN - COULD UPDATE SPARK SESSION TO USE MORE MEMORY IF AVAILABLE
+    # OPTIMIZATION: Cache the lineage here to prevent re-reading raw files for subsequent separate actions
+    #df_evaluated.cache()
 
     # Route bad data to Quarantine (handling True, False, and Null evaluations)
     df_quarantine = df_evaluated.filter((col("is_valid") == False) | col("is_valid").isNull()).drop("is_valid")
@@ -66,8 +81,8 @@ def build_silver_layer(spark):
 
     # TRADE-OFF: Left join to prevent silent data loss if zone IDs are missing
     df_silver = df_silver.join(
-        df_zones, 
-        df_silver["PULocationID"] == df_zones["LocationID"], 
+        df_zones,
+        df_silver["PULocationID"] == df_zones["LocationID"],
         "left"
     ).withColumn(
         "valid_pu_borough", coalesce(col("Borough"), lit("Unknown"))
@@ -78,21 +93,21 @@ def build_silver_layer(spark):
 
 def run_data_quality_tests(df_silver):
     print("\n--- 3. RUNNING DATA QUALITY TESTS (FAIL-FAST) ---")
-    
+
     null_keys = df_silver.filter(col("surrogate_key").isNull()).count()
     assert null_keys == 0, f"DQ FAIL: Found {null_keys} null surrogate keys."
 
     out_of_bounds = df_silver.filter(~col("trip_duration_mins").between(0, 300)).count()
     assert out_of_bounds == 0, f"DQ FAIL: Found {out_of_bounds} trips outside 0-300 min range."
 
-    invalid_payments = df_silver.filter(~col("payment_type").isin([1, 2, 3, 4, 5, 6])).count()
+    invalid_payments = df_silver.filter(~col("payment_type").isin([0, 1, 2, 3, 4, 5, 6])).count()
     assert invalid_payments == 0, f"DQ FAIL: Found {invalid_payments} invalid payment types."
 
     print("✅ All Data Quality assertions passed on the Silver layer!")
 
 def build_marts(df_silver):
     print("\n--- 5. COMPUTING & SAVING GOLD OUTPUTS ---")
-    
+
     daily_metrics = df_silver.groupBy("pickup_date").agg(
         count("*").alias("total_trips"),
         round(_sum("total_amount"), 2).alias("total_revenue"),
@@ -119,30 +134,38 @@ def build_marts(df_silver):
 if __name__ == "__main__":
     start_time = time.time()
     spark = create_spark_session()
-    
+
     df_silver = build_silver_layer(spark)
     run_data_quality_tests(df_silver)
-    
+
     print("\n--- 4. SAVING SILVER LAYER ---")
-    # =====================================================================
-    # INCREMENTAL LOAD STRATEGY & IDEMPOTENCY
-    # Here we partition the output by `pickup_month`. 
-    # To handle adding April 2024 or late-arriving/updated rows, a modern 
-    # Lakehouse (Apache Iceberg or Delta Lake) would use a MERGE operation
-    # utilizing the MD5 `surrogate_key` we generated above:
-    #
-    # target_table.alias("t").merge(
-    #     df_silver.alias("s"),
-    #     "t.surrogate_key = s.surrogate_key AND t.pickup_month = s.pickup_month"
-    # ).whenMatchedUpdateAll().whenNotMatchedInsertAll().execute()
-    # =====================================================================
     print("💾 Saving Cleaned Silver Data to local data/silver/taxi_trips (Partitioned by Month)...")
-    
+
     # Repartitioning by month ensures exactly 1 optimally sized file per month folder
     df_silver.repartition("pickup_month").write.mode("overwrite").partitionBy("pickup_month").parquet("/app/data/silver/taxi_trips")
-    
+
     build_marts(df_silver)
-    
+
+    # --- FINAL FILE COUNT VERIFICATION ---
+    print("\n" + "="*50 + "\nFINAL PARQUET FILE STORAGE BREAKDOWN\n" + "="*50)
+    paths_to_check = {
+        "Quarantine": "/app/data/quarantine/rejected_trips",
+        "Silver": "/app/data/silver/taxi_trips",
+        "Gold Metrics": "/app/data/gold/daily_metrics",
+        "Gold Tip Rates": "/app/data/gold/tip_rates"
+    }
+
+    for layer, path in paths_to_check.items():
+        print(f"\n📁 Layer: {layer}")
+        try:
+            check_df = spark.read.parquet(path)
+            (check_df.withColumn("file_path", input_file_name())
+             .groupBy("file_path").agg(count("*").alias("row_count"))
+             .orderBy("file_path").show(truncate=False))
+        except Exception as e:
+            print(f"  No files found or readable at {path}")
+    print("="*50)
+
     spark.stop()
     end_time = time.time()
     print(f"\n🎉 PIPELINE COMPLETE.")
