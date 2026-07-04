@@ -14,6 +14,7 @@ def create_spark_session():
     spark = SparkSession.builder \
         .appName("RideNow_Pipeline") \
         .config("spark.sql.shuffle.partitions", "4") \
+        .config("spark.sql.sources.partitionOverwriteMode", "dynamic") \
         .getOrCreate()
 
     # Silence the noisy INFO logs from the console
@@ -102,6 +103,18 @@ def run_data_quality_tests(df_silver):
 
     invalid_payments = df_silver.filter(~col("payment_type").isin([0, 1, 2, 3, 4, 5, 6])).count()
     assert invalid_payments == 0, f"DQ FAIL: Found {invalid_payments} invalid payment types."
+
+    invalid_fares = df_silver.filter(col("fare_amount") <= 0).count()
+    assert invalid_fares == 0, f"DQ FAIL: Found {invalid_fares} invalid fare amounts."
+
+    invalid_distance = df_silver.filter(~col("trip_distance").between(0, 100)).count()
+    assert invalid_distance == 0, f"DQ FAIL: Found {invalid_distance} invalid trip distances."
+
+    negative_time = df_silver.filter(col("tpep_dropoff_datetime") <= col("tpep_pickup_datetime")).count()
+    assert negative_time == 0, f"DQ FAIL: Found {negative_time} negative trip times."
+
+    pre_2024 = df_silver.filter(col("pickup_date") < '2024-01-01').count()
+    assert pre_2024 == 0, f"DQ FAIL: Found {pre_2024} trips before 2024."
 
     print("✅ All Data Quality assertions passed on the Silver layer!")
 
