@@ -32,6 +32,18 @@ This Lakehouse architecture supports both automated reporting and ad-hoc explora
 4. **Data Quality Auditing:** Use the provided SQL audit scripts to analyze quarantined records:
    `duckdb < audit_quarantine.sql`
 
+## 🔄 Incremental Loading (Adding April 2024 Data)
+The pipeline utilizes Spark's dynamic partition overwrite mode. To process the April 2024 data without triggering a full historical reload, the input read must be restricted to the new data. In a production state, this is typically handled by parameterizing the target file or archiving processed files. For local execution:
+1. Ensure only the new `yellow_tripdata_2024-04.parquet` file is present in the target Bronze ingestion directory, either archiving older files or parameterising the main.py script.
+2. Trigger the pipeline. 
+3. Spark will read only the April data and dynamically overwrite only the `pickup_month=2024-04` partition in the Silver layer, bypassing historical data entirely.
+
+## 📌 Assumptions & Data Choices
+To complete this pipeline within the 3 to 4-hour timebox, the following parameters were applied:
+* **No Downsampling:** The pipeline processes the full dataset provided without applying any row limits or `.sample()` filters, proving performance at the provided scale.
+* **Data Quality Thresholds:** Records with negative fare amounts, missing critical Zone IDs, or trip distances of 0 were considered invalid and automatically routed to the quarantine layer. 
+* **Time Zones:** All timestamps were assumed to be localized to the standard TLC system time; no UTC conversions were applied during this stage.
+
 ## ⏱️ Post-Timebox Reflections: Next Steps for Production
 
 *Note: The core deliverables above were completed within the requested 3 to 4-hour timebox. The following notes outline how I would scale this into a robust, production-grade pipeline if given more time.*
@@ -42,7 +54,7 @@ This Lakehouse architecture supports both automated reporting and ad-hoc explora
 *   **Advanced Data Quality Framework:** The current pipeline uses inline Python `assert` statements to fail fast on data violations. In production, I would replace this with a dedicated testing framework to automatically profile the data and generate data quality reports.
 
 
-  ### Future State: Gold Star Schema
+### Future State: Gold Star Schema
 
 If time permitted, the final Gold layer would be modeled as a Kimball star schema to optimize downstream BI performance. 
 
